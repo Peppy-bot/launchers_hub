@@ -1,0 +1,100 @@
+{
+  peppy_schema: "launcher_v1",
+  deployments: [
+    {
+      // Example if this was a node in a git location
+      // source: {
+      //   repo: "https://github.com/Peppy-bot/nodes_hub.git",
+      //   path: "example_robot/my_robot_brain/my_python_robot_brain",
+      //   ref: "main",
+      // },
+      // Example if this was an url
+      // source: {
+      //   url: "https://example.com/my_robot_brain.tar.zst",
+      //   sha256: "33e83da60a54e3bb487a9a3b67705918602143b30f158143b6909acaf017a36a",
+      // },
+      // Example if this was a local path
+      // source: {
+      //   local: "./local_robot_brain",
+      // },
+      source: {
+        name: "my_python_robot_brain:v1",
+      },
+      instances: [
+        {
+          instance_id: "the_brain",
+          bindings: {
+            camera: "the_camera",
+            robot_controller: "the_controller"
+          }
+        }
+      ],
+    },
+    {
+      source: {
+        name: "my_python_robot_backbone",
+        tag: "v1"
+      },
+      instances: [
+        {
+          instance_id: "the_controller",
+          bindings: {
+            left_robot_arm: "the_left_arm",
+            right_robot_arm: "the_right_arm"
+          }
+        }
+      ]
+    },
+    {
+      source: {
+        name: "my_python_robot_arm:v1",
+      },
+      instances: [
+        {
+          instance_id: "the_right_arm",
+        },
+        {
+          instance_id: "the_left_arm",
+        }
+      ]
+    },
+    {
+      source: {
+        name: "uvc_camera_python_mock:v1",
+      },
+      instances: [
+        {
+          instance_id: "the_camera",
+          arguments: {
+            device_path: "/dev/video0",
+            video: {
+              frame_rate: 30,
+              resolution: {
+                width: 1920,
+                height: 1080,
+              },
+              camera_encoding: "mjpeg",
+              topic_encoding: "rgb8",
+            },
+          }
+        }
+      ]
+    },
+    {
+      source: {
+        name: "uvc_camera_video_reconstruction:v1"
+      },
+      instances: [
+        {
+          instance_id: "video_reconstruction_1",
+          bindings: {
+            camera: "the_camera"
+          },
+          arguments: {
+            video_duration_seconds: 5
+          },
+        }
+      ]
+    },
+  ]
+}
