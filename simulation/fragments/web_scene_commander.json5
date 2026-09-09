@@ -1,0 +1,15 @@
+// Runtime scene and object control: a browser panel driving the
+// scene_control contract of the simulation that declares this option.
+{
+  peppy_schema: "launcher_fragment/v1",
+
+  deployments: [
+    {
+      source: { name: "scene_commander", tag: "v1" },
+      instances: [
+        { instance_id: "scene_commander_inst",
+          links: { simulation: "simulation_inst" } },
+      ],
+    },
+  ],
+}

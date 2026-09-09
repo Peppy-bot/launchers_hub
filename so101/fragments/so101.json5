@@ -1,0 +1,144 @@
+// The SO-101 robot: its follower, backbone, and its own axes: the command
+// surface, an optional recorder, and a camera. The leader arm leads unless a
+// launch word or a copy's `with` selects the headset.
+//
+// Before first launch: install ../rules/60-so101.rules (stable serial symlinks)
+// and calibrate both arms with lerobot-calibrate; the host paths below are
+// where this fragment expects them. See README.md.
+{
+  peppy_schema: "launcher_fragment/v1",
+
+  deployments: [
+    {
+      source: { name: "so101_follower", tag: "v1" },
+      instances: [
+        {
+          instance_id: "follower_inst",
+          arguments: {
+            device_path: "/dev/so101_follower",
+            calibration_dir: "/var/lib/so101/calibration",
+            robot_id: "follower",
+            // lerobot's validated teleop rate for this bus.
+            control_rate_hz: 60,
+            state_rate_hz: 60,
+          },
+        },
+      ],
+    },
+    {
+      source: { name: "so101_backbone", tag: "v1" },
+      instances: [
+        {
+          instance_id: "backbone_inst",
+          arguments: {
+            // Joint-led by default: the leader_arm pairing is the followed
+            // upstream command (the XR adjustment below selects "pose").
+            upstream_mode: "joints",
+            control_rate_hz: 60,
+            // The stream's only limiter: max end-effector speed. Generous
+            // for teleop feel; lower for cautious sessions. The linear cap
+            // is the primary knob.
+            max_ee_velocity_m_s: 2.0,
+            max_ee_angular_velocity_rad_s: 12.0,
+            max_gripper_rate_frac_s: 10.0,
+          },
+          links: {
+            // The exclusive command loops with the follower: governed-shape
+            // setpoints stream down, measured state streams back.
+            arm_link: "follower_inst",
+            gripper_link: "follower_inst",
+            // The pose slot stays vacant under joint-led teleop. The XR
+            // adjustment below unsets this vacancy and binds the commander.
+            leader_pose: { vacant: "upstream_mode joints: arm commands arrive on the joint slot" },
+          },
+        },
+      ],
+    },
+    { robot_commander: "so101_leader" },
+  ],
+
+  components: [
+    // No `provides`: the action-only option deploys nothing, and a provided
+    // id must be defined by every option.
+    {
+      name: "robot_commander",
+      options: {
+        so101_leader: "so101_leader.json5",
+        xr_commander: "../../robot_commanders/fragments/xr_commander.json5",
+        // An action-only session: no teleop surface, actions still drive it.
+        no_commander: "no_commander.json5",
+      },
+    },
+    {
+      name: "recorder", cardinality: "zero_or_one", provides: ["recorder_inst"],
+      options: { lerobot_recorder: "../../recording/fragments/lerobot_recorder.json5" },
+    },
+    {
+      name: "camera_rig", cardinality: "zero_or_one", provides: ["front"],
+      options: { cameras: "cameras.json5" },
+    },
+  ],
+
+  constraints: [
+    // Episodes start via the recorder's record_episode action, and only the
+    // XR commander carries that button; a recorder deployed beside the
+    // leader arm would idle with no way to trigger it.
+    { when: { recorder: "lerobot_recorder" },
+      requires: [{ robot_commander: "xr_commander" }],
+      reason: "only the XR commander can start an episode: the leader arm has no recorder slot" },
+    // A camera needs a consumer: only the recorder and the XR commander
+    // have camera slots, so without either the camera opens its device and
+    // publishes to zero subscribers.
+    { when: { camera_rig: "cameras" },
+      requires: [{ recorder: "lerobot_recorder" }, { robot_commander: "xr_commander" }],
+      reason: "nothing in this selection consumes a camera stream: only the recorder and the XR commander have camera slots" },
+  ],
+
+  adjustments: [
+    {
+      when: { robot_commander: "xr_commander" },
+      target: "commander_inst",
+      // SO-101 teleop runs at 60 Hz. The released trigger opens the jaw
+      // to half travel, matching this robot's launch profile.
+      set_arguments: { command_rate_hz: 60, gripper_open_fraction: 0.5 },
+      set_links: {
+        // The right controller drives the single arm and its gripper.
+        right_arm: "backbone_inst/leader_pose",
+        right_gripper: "backbone_inst/leader_gripper",
+        left_arm: { vacant: "single-arm robot: only the right hand drives" },
+        left_gripper: { vacant: "single-arm robot: only the right hand drives" },
+        // A moves home, B moves ready; telemetry comes from the follower.
+        postures: ["backbone_inst"],
+        motor_health: ["follower_inst"],
+        alerts: ["follower_inst"],
+      },
+    },
+    {
+      when: { robot_commander: "xr_commander" },
+      target: "backbone_inst",
+      set_arguments: { upstream_mode: "pose" },
+      set_links: {
+        leader_arm: { vacant: "upstream_mode pose: arm commands arrive on the pose slot" },
+      },
+      unset_links: ["leader_pose"],
+    },
+    {
+      target: "recorder_inst",
+      set_arguments: {
+        robot_type: "so101",
+        // SO-101's dataset grid, sampled from its 60 Hz control streams.
+        fps: 30,
+        // /tmp lasts until reboot; select durable storage for saved datasets.
+        storage_root: "/tmp/lerobot_so101",
+      },
+      set_links: {
+        // Each measured source aligns positionally with its commanded
+        // source. The action is the governed setpoint sent to the follower.
+        observed_joints: ["follower_inst"],
+        observed_grippers: ["follower_inst"],
+        commanded_joints: ["backbone_inst/arm_link"],
+        commanded_grippers: ["backbone_inst/gripper_link"],
+      },
+    },
+  ],
+}

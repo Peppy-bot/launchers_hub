@@ -1,0 +1,39 @@
+// The Waldo simulation. It serves its HTTPS viewer on viewer_port (8080 by
+// default) with a self-signed certificate and streams it over HTTPS and
+// WebSocket; its scene_control contract takes a scene commander. The fleet
+// sets the world and its plugins when it selects this simulation.
+{
+  peppy_schema: "launcher_fragment/v1",
+  deployments: [
+    {
+      source: { name: "waldo", tag: "v1" },
+      instances: [{
+        instance_id: "simulation_inst",
+        // Rendering is enabled by a robot's rendered camera rig.
+        arguments: { cameras_enabled: false, state_rate_hz: 100 },
+        links: {
+          left_arm: { vacant: "a simulated robot binds this limb through its relays" },
+          right_arm: { vacant: "a simulated robot binds this limb through its relays" },
+          left_gripper: { vacant: "a simulated robot binds this limb through its relays" },
+          right_gripper: { vacant: "a simulated robot binds this limb through its relays" },
+          wrist_left: { vacant: "select cameras_sim to render this camera" },
+          wrist_right: { vacant: "select cameras_sim to render this camera" },
+          chest: { vacant: "select cameras_sim to render this camera" },
+        },
+        // In sim-time mode the simulation publishes Waldo's clock to each
+        // participating daemon at state_rate_hz. In wall-time mode this
+        // declaration resolves to an empty participant list.
+        framework: { publishes_sim_time: true },
+      }],
+    },
+  ],
+
+  // Runtime scene and object control, selected with `--with
+  // web_scene_commander` at launch.
+  components: [
+    {
+      name: "scene_commander", cardinality: "zero_or_one",
+      options: { web_scene_commander: "web_scene_commander.json5" },
+    },
+  ],
+}

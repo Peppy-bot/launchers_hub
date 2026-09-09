@@ -1,0 +1,102 @@
+// A simulated OpenArm v2: four relays pair the simulation's limbs onto the
+// instance ids the real CAN drivers use, so the shared OpenArm control,
+// its commander and its recorder keep the same links as on hardware. The
+// launcher's simulation axis supplies simulation_inst, which loads the v2
+// model unless told otherwise; MuJoCo, Isaac Sim and Waldo all simulate a
+// v2, and all three render its camera rig.
+{
+  peppy_schema: "launcher_fragment/v1",
+
+  // The robot's relays, and the option it deploys on its own axes unless a
+  // copy's `with` says otherwise.
+  deployments: [
+    {
+      source: { name: "openarm_sim_arm", tag: "v1" },
+      instances: [
+        { instance_id: "left_arm_inst",  links: { simulation: "simulation_inst/left_arm" } },
+        { instance_id: "right_arm_inst", links: { simulation: "simulation_inst/right_arm" } },
+      ],
+    },
+    {
+      source: { name: "openarm_sim_gripper", tag: "v1" },
+      instances: [
+        { instance_id: "left_gripper_inst",  links: { simulation: "simulation_inst/left_gripper" } },
+        { instance_id: "right_gripper_inst", links: { simulation: "simulation_inst/right_gripper" } },
+      ],
+    },
+    { control: "control_common" },
+    // The commander this robot runs unless a copy's `with` selects another.
+    { robot_commander: "web_commander" },
+  ],
+
+  // The robot's own axes, `one` or `zero_or_one`, filled per copy of this
+  // fragment: `with: { robot_commander: "xr_commander" }` on a copy in the
+  // launcher, `--with xr_commander` on `stack join`.
+  components: [
+    // The initializer and backbone every OpenArm shares.
+    {
+      name: "control", provides: ["init_inst", "backbone_inst"],
+      options: { control_common: "control_common.json5" },
+    },
+    {
+      name: "robot_commander", provides: ["commander_inst"],
+      options: {
+        web_commander: "web_commander.json5",
+        xr_commander: "../../robot_commanders/fragments/xr_commander.json5",
+        mcp_commander: "mcp_commander.json5",
+      },
+    },
+    {
+      name: "recorder", cardinality: "zero_or_one", provides: ["recorder_inst"],
+      options: { lerobot_recorder: "../../recording/fragments/lerobot_recorder.json5" },
+    },
+    // The three episode viewpoints as one rig, rendered by the simulation:
+    // a dataset records a fixed set. Each rendered camera costs the
+    // simulation a frame budget, so the rig runs only when selected.
+    {
+      name: "camera_rig", cardinality: "zero_or_one",
+      provides: ["wrist_left", "wrist_right", "chest"],
+      options: { cameras_sim: "cameras_sim.json5" },
+    },
+    // The environment aware action layer: the brain consumes limb_motion
+    // from the backbone, so it sits beside any robot commander.
+    {
+      name: "brain", cardinality: "zero_or_one",
+      provides: ["brain_inst", "brain_mcp_inst"],
+      options: { ai_brain: "ai_brain.json5" },
+    },
+  ],
+
+  constraints: [
+    // The recorder and XR headset consume camera streams; the rig must feed
+    // at least one of them.
+    { when: { camera_rig: "cameras_sim" },
+      requires: [{ recorder: "lerobot_recorder" }, { robot_commander: "xr_commander" }],
+      reason: "camera streams need a consumer; select lerobot_recorder or xr_commander" },
+  ],
+
+  adjustments: [
+    // The relays pair into the simulation's limb slots, so the vacancies it
+    // declares for a launch without a robot go.
+    { target: "simulation_inst",
+      unset_links: ["left_arm", "right_arm", "left_gripper", "right_gripper"] },
+    // The generation the backbone governs, and a startup EE-speed cap the
+    // simulation, faster than the real arm, allows.
+    { target: "backbone_inst",
+      set_arguments: { hardware_version: "v2", max_ee_velocity_m_s: 0.5 } },
+    // Isaac publishes measured state once per rendered frame, capped at 60 Hz.
+    { target: "backbone_inst", when: { simulation: "isaac_sim" },
+      set_arguments: { follower_state_rate_hz: 60 } },
+    // The browser panel streams the live cap the backbone follows.
+    { target: "commander_inst", when: { robot_commander: "web_commander" },
+      set_arguments: { max_ee_velocity_m_s: 0.5 } },
+    // Dataset identity follows the simulation. /tmp lasts until reboot;
+    // select durable storage for saved datasets.
+    { target: "recorder_inst", when: { simulation: "mujoco" },
+      set_arguments: { robot_type: "openarm_v2_mujoco", storage_root: "/tmp/lerobot_openarm_mujoco" } },
+    { target: "recorder_inst", when: { simulation: "isaac_sim" },
+      set_arguments: { robot_type: "openarm_v2_isaac", storage_root: "/tmp/lerobot_openarm_isaac" } },
+    { target: "recorder_inst", when: { simulation: "waldo" },
+      set_arguments: { robot_type: "openarm_v2_waldo", storage_root: "/tmp/lerobot_openarm_waldo" } },
+  ],
+}

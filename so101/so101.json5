@@ -1,104 +1,15 @@
-// SO-101 single-arm stack, composed: the command surface, the recorder,
-// and a camera selected at launch time. The commander has no default; every
-// option implies hardware or intent (leader arm = immediate teleop,
-// XR = headset), so each launch names its choice:
+// One SO-101 with the ids its fragment writes: follower_inst, backbone_inst,
+// commander_inst. The leader arm leads unless a launch word selects the
+// headset:
 //
-//   peppy stack launch so101 --with=so101_leader
-//   peppy stack launch so101 --with=xr_commander,lerobot_recorder,cameras
-//   peppy stack launch so101 --with=none                  (actions only)
-//
-// Before first launch: install rules/60-so101.rules (stable serial symlinks)
-// and calibrate both arms with lerobot-calibrate; the host paths below are
-// where this launcher expects them. See README.md.
+//   peppy stack launch so101
+//   peppy stack launch so101 --with xr_commander,lerobot_recorder,cameras
 {
   peppy_schema: "launcher/v1",
 
   components: [
-    {
-      name: "commander",
-      // No `provides`: the ids a component provides must be defined by every
-      // one of its options, and the action-only option deploys nothing.
-      options: {
-        so101_leader: "fragments/so101_leader.json5",
-        xr_commander: "fragments/xr_commander.json5",
-        // An action-only session: no teleop surface, actions still drive it.
-        none: "fragments/no_commander.json5",
-      },
-    },
-    {
-      name: "recorder",
-      optional: true,
-      provides: ["recorder_inst"],
-      options: { lerobot_recorder: "fragments/lerobot_recorder.json5" },
-    },
-    {
-      name: "cameras",
-      optional: true,
-      provides: ["front"],
-      options: { cameras: "fragments/cameras.json5" },
-    },
+    { name: "robot", options: { so101: "fragments/so101.json5" } },
   ],
 
-  constraints: [
-    // Episodes start via the recorder's record_episode action, and only the
-    // XR commander carries that button; a recorder deployed beside the
-    // leader arm would idle with no way to trigger it.
-    { when: { recorder: "lerobot_recorder" },
-      requires: [{ commander: "xr_commander" }],
-      reason: "only the XR commander can start an episode: the leader arm has no recorder slot" },
-    // A camera needs a consumer: only the recorder and the XR commander
-    // have camera slots, so without either the camera opens its device and
-    // publishes to zero subscribers.
-    { when: { cameras: "cameras" },
-      requires: [{ recorder: "lerobot_recorder" }, { commander: "xr_commander" }],
-      reason: "nothing in this selection consumes a camera stream: only the recorder and the XR commander have camera slots" },
-  ],
-
-  deployments: [
-    {
-      source: { name: "so101_follower", tag: "v1" },
-      instances: [
-        {
-          instance_id: "follower_inst",
-          arguments: {
-            device_path: "/dev/so101_follower",
-            calibration_dir: "/var/lib/so101/calibration",
-            robot_id: "follower",
-            // lerobot's validated teleop rate for this bus.
-            control_rate_hz: 60,
-            state_rate_hz: 60,
-          },
-        },
-      ],
-    },
-    {
-      source: { name: "so101_backbone", tag: "v1" },
-      instances: [
-        {
-          instance_id: "backbone_inst",
-          arguments: {
-            // Joint-led by default: the leader_arm pairing is the followed
-            // upstream command (the headset fragment flips this to "pose").
-            upstream_mode: "joints",
-            control_rate_hz: 60,
-            // The stream's only limiter: max end-effector speed. Generous
-            // for teleop feel; lower for cautious sessions. The linear cap
-            // is the primary knob.
-            max_ee_velocity_m_s: 2.0,
-            max_ee_angular_velocity_rad_s: 12.0,
-            max_gripper_rate_frac_s: 10.0,
-          },
-          links: {
-            // The exclusive command loops with the follower: governed-shape
-            // setpoints stream down, measured state streams back.
-            arm_link: "follower_inst",
-            gripper_link: "follower_inst",
-            // The pose slot stays vacant under joint-led teleop (the headset
-            // fragment unsets this and pairs into it instead).
-            leader_pose: { vacant: "upstream_mode joints: arm commands arrive on the joint slot" },
-          },
-        },
-      ],
-    },
-  ],
+  deployments: [{ robot: "so101" }],
 }

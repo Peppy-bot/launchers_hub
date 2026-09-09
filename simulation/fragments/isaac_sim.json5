@@ -1,0 +1,43 @@
+// The Isaac Sim simulation of an OpenArm and the browser frontend for its
+// WebRTC livestream. It loads the v2 model; a v1 robot the file deploys
+// sets hardware_version at launch. Its scene_control contract takes a
+// scene commander.
+{
+  peppy_schema: "launcher_fragment/v1",
+  deployments: [
+    {
+      source: { name: "openarm_sim_isaac", tag: "v1" },
+      instances: [{
+        instance_id: "simulation_inst",
+        // Rendering is enabled by a robot's rendered camera rig.
+        arguments: { cameras_enabled: false, hardware_version: "v2", state_rate_hz: 60 },
+        links: {
+          left_arm: { vacant: "a simulated robot binds this limb through its relays" },
+          right_arm: { vacant: "a simulated robot binds this limb through its relays" },
+          left_gripper: { vacant: "a simulated robot binds this limb through its relays" },
+          right_gripper: { vacant: "a simulated robot binds this limb through its relays" },
+          wrist_left: { vacant: "select cameras_sim to render this camera" },
+          wrist_right: { vacant: "select cameras_sim to render this camera" },
+          chest: { vacant: "select cameras_sim to render this camera" },
+        },
+        // In sim-time mode the simulation publishes Isaac's timeline clock
+        // to each participating daemon at state_rate_hz. In wall-time mode
+        // this declaration resolves to an empty participant list.
+        framework: { publishes_sim_time: true },
+      }],
+    },
+    {
+      source: { name: "isaac_webviewer", tag: "v1" },
+      instances: [{ instance_id: "isaac_webviewer_inst" }],
+    },
+  ],
+
+  // Runtime scene and object control, selected with `--with
+  // web_scene_commander` at launch.
+  components: [
+    {
+      name: "scene_commander", cardinality: "zero_or_one",
+      options: { web_scene_commander: "web_scene_commander.json5" },
+    },
+  ],
+}

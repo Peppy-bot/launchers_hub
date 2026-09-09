@@ -90,6 +90,7 @@ jobs:
           LC_ALL: C
         run: |
           set -euo pipefail
+          python3 -m unittest discover -s .github/scripts -p 'test_*.py'
           python3 .github/scripts/launcher_combinations.py enumerate \
             > "$RUNNER_TEMP/inventory.tsv"
           awk -F'\t' '$1 == "launcher"' "$RUNNER_TEMP/inventory.tsv" \
@@ -101,7 +102,8 @@ jobs:
             $1 == "launcher" { printf "**%s** — %s\n", $2, $3; next }
             $1 == "combo" {
               selection = ($3 == "" ? "defaults" : $3)
-              if ($4 == "local") selection = selection " (--local)"
+              if ($4 != "") selection = selection " + join " $4 ($5 == "" ? "" : " (" $5 ")")
+              if ($6 == "local") selection = selection " (--local)"
               print "- " selection
             }
           ' "$RUNNER_TEMP/inventory.tsv")
@@ -281,7 +283,7 @@ jobs:
       matrix:
         combo: ${{ fromJSON(needs.discover.outputs.matrix) }}
     runs-on: blacksmith-16vcpu-ubuntu-2404
-    # A cold launch of the heaviest combination pulls the mujoco engine
+    # A cold launch of the heaviest combination pulls the mujoco simulation
     # image, compiles the openarm Rust nodes, and resolves the lerobot
     # recorder's tree (torch included) inside its image build; the sticky
     # disk below keeps warm runs far under this.
@@ -420,8 +422,8 @@ jobs:
             echo "UV_PYTHON_INSTALL_DIR=$CI_CACHE_DIR/uv/python"
           } >> "$GITHUB_ENV"
 
-      # The waldo engine node lives in Peppy-bot/private-nodes-hub, which
-      # only an authenticated reader can clone, so the daemon gets a
+      # The waldo simulation node lives in Peppy-bot/private-nodes-hub,
+      # which only an authenticated reader can clone, so the daemon gets a
       # repository deploy key: a read-only one, scoped to that repository
       # alone, held as the PRIVATE_NODES_HUB_DEPLOY_KEY secret. peppy
       # authenticates ssh clones through the ssh-agent, so the agent's
@@ -521,10 +523,8 @@ jobs:
           fi
           peppy repo refresh
 
-      # This job's one combination, start to end: the launch resolves the
-      # launcher, waits for every node to signal ready, and only then
-      # returns; `stack list` records what came up, and `stack reset` tears
-      # it down, proving the stack comes back down as cleanly as it went up.
+      # Launch the combination, then join its copy, record the resulting
+      # stack, remove the copy, and reset the stack.
       #
       # The build idle budget is raised from the 180s default: a release
       # compile of a heavy dependency can sit between cargo's progress lines
@@ -540,6 +540,9 @@ jobs:
           LABEL: ${{ matrix.combo.label }}
           LAUNCHER: ${{ matrix.combo.launcher }}
           WORDS: ${{ matrix.combo.words }}
+          JOIN_OPTION: ${{ matrix.combo.join_option }}
+          JOIN_NAME: ${{ matrix.combo.join_name }}
+          JOIN_WORDS: ${{ matrix.combo.join_words }}
           LOCAL: ${{ matrix.combo.local }}
         run: |
           set -euo pipefail
@@ -548,5 +551,19 @@ jobs:
           [ "$LOCAL" = "true" ] && args+=("--local")
           echo "Launching $LABEL: peppy stack launch ${args[*]}"
           peppy stack launch "${args[@]}" --node-build-idle-timeout-secs 900
+          if [ -n "$JOIN_OPTION" ]; then
+            # The simulations pair one robot, so the copies the file deploys
+            # make way for the planned one.
+            for copy in $(RUST_LOG=error peppy stack list --json | jq -r '.core_nodes[].copies[]?.name'); do
+              echo "Removing the file's copy: peppy stack remove $copy"
+              peppy stack remove "$copy"
+            done
+            join=("$JOIN_OPTION" -i "$JOIN_NAME")
+            [ -n "$JOIN_WORDS" ] && join+=("--with" "$JOIN_WORDS")
+            echo "Joining: peppy stack join ${join[*]}"
+            peppy stack join "${join[@]}" --node-build-idle-timeout-secs 900
+            peppy stack list
+            peppy stack remove "$JOIN_NAME"
+          fi
           peppy stack list
           peppy stack reset

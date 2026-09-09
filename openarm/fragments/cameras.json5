@@ -1,5 +1,5 @@
 // The three-episode-viewpoint camera set, tuned for the recorder (the
-// headset retunes them for in-headset panels via its own fragment). The
+// headset selection retunes them for in-headset panels below). The
 // adjustments bind the cameras into whichever recorder was selected; only
 // the XR leader has camera slots of its own, so that attach is guarded on
 // the shape.
@@ -75,8 +75,40 @@
                    rgbd_cameras: ["chest"] } },
     // Shape guard: only the XR leader has camera slots (the panels the
     // headset relays anchor to the controllers).
-    { target: "commander_inst", when: { commander: "xr_commander" },
+    { target: "commander_inst", when: { robot_commander: "xr_commander" },
       add_links: { color_cameras: ["wrist_left", "wrist_right"],
                    rgbd_cameras: ["chest"] } },
+    // Panels take the Arducams as raw yuyv (half of rgb8) and the chest a
+    // deeper disparity floor. Rate and resolution stay with the camera rig;
+    // the XR node relays at view_max_width.
+    {
+      when: { robot_commander: "xr_commander" },
+      target: "wrist_left",
+      set_arguments: {
+        video: {
+          frame_rate: 15,
+          resolution: { width: 960, height: 600 },
+          camera_encoding: "yuyv",
+          topic_encoding: "yuyv",
+        },
+      },
+    },
+    {
+      when: { robot_commander: "xr_commander" },
+      target: "wrist_right",
+      set_arguments: {
+        video: {
+          frame_rate: 15,
+          resolution: { width: 960, height: 600 },
+          camera_encoding: "yuyv",
+          topic_encoding: "yuyv",
+        },
+      },
+    },
+    {
+      when: { robot_commander: "xr_commander" },
+      target: "chest",
+      set_arguments: { depth: { min_depth_m: 0.45, downscale: 2, block_size: 5 } },
+    },
   ],
 }

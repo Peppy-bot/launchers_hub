@@ -1,11 +1,14 @@
 {
   peppy_schema: "repository/v1",
   launchers: {
-    openarm_v1: {
-      path: "openarm/openarm_v1.json5"
+    openarm_generic_fleet: {
+      path: "openarm/openarm_generic_fleet.json5"
     },
-    openarm_v2: {
-      path: "openarm/openarm_v2.json5"
+    openarm_real_fleet: {
+      path: "openarm/openarm_real_fleet.json5"
+    },
+    openarm_sim_fleet: {
+      path: "openarm/openarm_sim_fleet.json5"
     },
     python_robot: {
       path: "examples/python_robot.json5"

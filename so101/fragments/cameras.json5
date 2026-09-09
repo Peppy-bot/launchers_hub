@@ -8,7 +8,7 @@
     {
       // A generic UVC webcam over the front of the workspace. The instance
       // id becomes the dataset image key (observation.images.front). The
-      // device path is the udev symlink rules/60-so101.rules pins;
+      // device path is the udev symlink ../rules/60-so101.rules pins;
       // resolution and rate are the common 720p UVC mode, retune per rig.
       source: { name: "uvc_camera_linux", tag: "v1" },
       instances: [
@@ -34,7 +34,7 @@
     { target: "recorder_inst", add_links: { color_cameras: ["front"] } },
     // And relay it into the headset. commander_inst always exists, so this
     // one needs its own guard: the leader arm has no camera slot to bind.
-    { target: "commander_inst", when: { commander: "xr_commander" },
+    { target: "commander_inst", when: { robot_commander: "xr_commander" },
       add_links: { color_cameras: ["front"] } },
   ],
 }

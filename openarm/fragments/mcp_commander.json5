@@ -1,9 +1,10 @@
 // The MCP command surface: no leader node at all. The server built into
 // peppy serves the openarm_v2:v1 exposure from the MCP hub, both of its
 // targets filled by the backbone, and its instance fills the commander_inst
-// role so everything keyed on the commander axis keeps resolving. Nothing
-// streams: every move is a discrete action the backbone runs itself, so the
-// backbone's leader sockets and its governor-control slot go vacant below.
+// role so everything keyed on the robot_commander axis keeps resolving.
+// Nothing streams: every move is a discrete action the backbone runs
+// itself, so the backbone's leader sockets and its governor-control slot go
+// vacant below.
 {
   peppy_schema: "launcher_fragment/v1",
 
@@ -28,10 +29,10 @@
     // The MCP server never pairs into the backbone: arm and gripper moves
     // arrive as limb_motion actions and posture moves as postures actions,
     // so the four sockets a leader would fill under joint-led teleop are
-    // vacated (upstream_mode stays "joints"; the base already vacates the
-    // two pose sockets). It never produces governor_control either, so the
-    // backbone's launch-time band, enable, and EE-speed caps stand for the
-    // whole session, exactly as under the headset.
+    // vacated (upstream_mode stays "joints"; the robot fragment already
+    // vacates the two pose sockets). It never produces governor_control
+    // either, so the backbone's launch-time band, enable, and EE-speed caps
+    // stand for the whole session, exactly as under the headset.
     { target: "backbone_inst",
       set_links: {
         collision_ctrl: { vacant: "the MCP commander never produces governor_control" },

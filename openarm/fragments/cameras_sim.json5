@@ -1,0 +1,57 @@
+// The rendered counterpart of cameras.json5: the same three episode
+// viewpoints and the same instance ids, so a simulated session records the
+// dataset image keys a real one does (observation.images.wrist_left /
+// wrist_right / chest, plus chest_depth). The frames come from the
+// simulation, so there are no device paths and no udev rule here; each
+// relay views one camera slot on the simulation and presents the
+// rgb_camera / rgbd_camera contract, exactly as the uvc and zed nodes do.
+//
+// Camera placement, intrinsics and rates live with the simulation (MuJoCo
+// and Isaac Sim read config/cameras.json5, and Waldo keeps the same
+// placement in its world manifest), taken from Enactic's published v2
+// geometry. The simulations reject this camera rig on v1 links, so only
+// openarm_v2_sim declares it.
+{
+  peppy_schema: "launcher_fragment/v1",
+
+  deployments: [
+    {
+      // Wrist cameras: the simulation renders one Arducam viewpoint per
+      // gripper and each relay republishes it.
+      source: { name: "sim_rgb_camera", tag: "v1" },
+      instances: [
+        { instance_id: "wrist_left",  links: { simulation: "simulation_inst/wrist_left" } },
+        { instance_id: "wrist_right", links: { simulation: "simulation_inst/wrist_right" } },
+      ],
+    },
+    {
+      // Chest camera: the ZED Mini viewpoint as an rgbd producer, color and
+      // depth aligned because both come from one rendered camera. Stream
+      // geometry and the depth floor live with the simulation's
+      // cameras.json5, which documents why the sim floor differs from the
+      // real node's.
+      source: { name: "sim_rgbd_camera", tag: "v1" },
+      instances: [
+        { instance_id: "chest", links: { simulation: "simulation_inst/chest" } },
+      ],
+    },
+  ],
+
+  adjustments: [
+    // Rendering costs a frame budget every frame, so the simulation ships
+    // with its camera slots idle and this selection is what turns them on;
+    // the relays above pair into the slots the simulation declared vacant.
+    { target: "simulation_inst",
+      set_arguments: { cameras_enabled: true },
+      unset_links: ["wrist_left", "wrist_right", "chest"] },
+    // Bind into whichever recorder was selected, in the same order as the
+    // real fragment so both produce the same feature order.
+    { target: "recorder_inst",
+      add_links: { color_cameras: ["wrist_left", "wrist_right"],
+                   rgbd_cameras: ["chest"] } },
+    // Shape guard: only the XR leader has camera slots of its own.
+    { target: "commander_inst", when: { robot_commander: "xr_commander" },
+      add_links: { color_cameras: ["wrist_left", "wrist_right"],
+                   rgbd_cameras: ["chest"] } },
+  ],
+}

@@ -1,0 +1,24 @@
+// Dataset recording and the record button on commander_inst. The robot's
+// fragment requires a commander with a recorder slot (the web panel or XR
+// headset) and supplies the ordered limb observations and actions, dataset
+// rate, robot_type, and storage_root.
+//
+// storage_root is bind-mounted into the recorder container; /tmp lasts until
+// reboot, so select durable storage for saved datasets. Setting s3_uri
+// (s3://bucket/prefix, including R2) mirrors saved episodes to the bucket.
+// The recorder reads AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+// AWS_ENDPOINT_URL_S3, and AWS_DEFAULT_REGION from the launch environment.
+{
+  peppy_schema: "launcher_fragment/v1",
+
+  deployments: [
+    {
+      source: { name: "lerobot_recorder", tag: "v1" },
+      instances: [{ instance_id: "recorder_inst" }],
+    },
+  ],
+
+  adjustments: [
+    { target: "commander_inst", add_links: { recorder: ["recorder_inst"] } },
+  ],
+}

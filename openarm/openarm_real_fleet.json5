@@ -1,0 +1,35 @@
+// Physical OpenArms, each a copy of one of the `robot` options placed on
+// its own machine, its ids minted under its name: alpha_backbone_inst,
+// alpha_commander_inst.
+//
+//   peppy stack launch openarm_real_fleet                                     # alpha on this machine
+//   peppy stack launch openarm_real_fleet --place alpha@jetson-1
+//   peppy stack join openarm_v1 -i bravo --with xr_commander --place bravo@jetson-2
+//   peppy stack remove bravo
+//
+// Two robots on one machine need their own CAN interfaces and commander
+// port: override them per copy with `arguments` here or --set-arguments on
+// join, as the OpenArm README shows.
+{
+  peppy_schema: "launcher/v1",
+
+  components: [
+    {
+      name: "robot",
+      cardinality: "zero_or_more",
+      options: {
+        openarm_v1: "fragments/openarm_v1.json5",
+        openarm_v2: "fragments/openarm_v2.json5",
+      },
+    },
+  ],
+
+  deployments: [
+    {
+      robot: "openarm_v2",
+      instances: [
+        { instance_id: "alpha", with: { robot_commander: "web_commander" } },
+      ],
+    },
+  ],
+}

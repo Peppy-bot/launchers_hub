@@ -1,0 +1,124 @@
+// A physical OpenArm v1: v1 frames and base links with prismatic
+// parallel-jaw grippers, the shared OpenArm control, and the robot's own
+// axes: the commander that leads it, the recorder that films it, and its
+// camera rig.
+// CAN topology: left arm + left gripper share can0; right arm + right
+// gripper share can1. Match hardware_version and can_interface to the
+// physical rig before launch.
+{
+  peppy_schema: "launcher_fragment/v1",
+
+  // The robot's limbs, and the option it deploys on its own axes unless a
+  // copy's `with` says otherwise.
+  deployments: [
+    {
+      source: { name: "openarm_arm", tag: "v1" },
+      instances: [
+        {
+          instance_id: "left_arm_inst",
+          arguments: {
+            arm_id: 0,
+            hardware_version: "v1",
+            can_interface: "can0",
+            control_rate_hz: 100,
+            state_rate_hz: 100,
+          },
+        },
+        {
+          instance_id: "right_arm_inst",
+          arguments: {
+            arm_id: 1,
+            hardware_version: "v1",
+            can_interface: "can1",
+            control_rate_hz: 100,
+            state_rate_hz: 100,
+          },
+        },
+      ],
+    },
+    {
+      source: { name: "openarm_gripper", tag: "v1" },
+      instances: [
+        {
+          instance_id: "left_gripper_inst",
+          arguments: {
+            gripper_id: 0,
+            hardware_version: "v1",
+            can_interface: "can0",
+            control_rate_hz: 100,
+            state_rate_hz: 100,
+          },
+        },
+        {
+          instance_id: "right_gripper_inst",
+          arguments: {
+            gripper_id: 1,
+            hardware_version: "v1",
+            can_interface: "can1",
+            control_rate_hz: 100,
+            state_rate_hz: 100,
+          },
+        },
+      ],
+    },
+    { control: "control_common" },
+    // The commander this robot runs unless a copy's `with` selects another.
+    { robot_commander: "web_commander" },
+  ],
+
+  // The robot's own axes, `one` or `zero_or_one`, filled per copy of this
+  // fragment: `with: { robot_commander: "xr_commander" }` on a copy in the
+  // launcher, `--with xr_commander` on `stack join`.
+  components: [
+    // The initializer and backbone every OpenArm shares.
+    {
+      name: "control", provides: ["init_inst", "backbone_inst"],
+      options: { control_common: "control_common.json5" },
+    },
+    {
+      name: "robot_commander", provides: ["commander_inst"],
+      options: {
+        web_commander: "web_commander.json5",
+        xr_commander: "../../robot_commanders/fragments/xr_commander.json5",
+        mcp_commander: "mcp_commander.json5",
+      },
+    },
+    {
+      name: "recorder", cardinality: "zero_or_one", provides: ["recorder_inst"],
+      options: { lerobot_recorder: "../../recording/fragments/lerobot_recorder.json5" },
+    },
+    // The physical three-camera rig, installed per
+    // ../rules/99-openarm-cameras.rules.
+    {
+      name: "camera_rig", cardinality: "zero_or_one",
+      provides: ["wrist_left", "wrist_right", "chest"],
+      options: { cameras: "cameras.json5" },
+    },
+  ],
+
+  constraints: [
+    // The recorder and XR headset consume camera streams; the rig must feed
+    // at least one of them.
+    { when: { camera_rig: "cameras" },
+      requires: [{ recorder: "lerobot_recorder" }, { robot_commander: "xr_commander" }],
+      reason: "camera streams need a consumer; select lerobot_recorder or xr_commander" },
+  ],
+
+  adjustments: [
+    // The generation the backbone governs, and a startup EE-speed cap
+    // conservative for physical hardware.
+    { target: "backbone_inst",
+      set_arguments: { hardware_version: "v1", max_ee_velocity_m_s: 0.25 } },
+    // Real CAN drivers emit operator alerts. Only web and XR commanders
+    // declare an alerts slot.
+    { target: "commander_inst", when: { robot_commander: ["web_commander", "xr_commander"] },
+      add_links: { alerts: ["left_arm_inst", "right_arm_inst", "left_gripper_inst", "right_gripper_inst"] } },
+    // The browser panel loads the v1 model.
+    { target: "commander_inst", when: { robot_commander: "web_commander" },
+      set_arguments: { hardware_version: "v1" } },
+    // Dataset identity. /tmp lasts until reboot; select durable storage for
+    // saved datasets.
+    { target: "recorder_inst",
+      set_arguments: { robot_type: "openarm_v1", storage_root: "/tmp/lerobot_openarm_v1" } },
+  ],
+}

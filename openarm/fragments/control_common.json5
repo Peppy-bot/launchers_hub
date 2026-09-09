@@ -1,0 +1,117 @@
+// The control every OpenArm shares: the initializer that reports the robot
+// ready once its four limbs are up, the backbone that governs them, and
+// the wiring of the robot's commander and recorder into both. The robot
+// fragment that selects this control supplies the limbs under the ids
+// linked here, real CAN drivers or simulation relays, and sets the
+// backbone's hardware generation and speed cap.
+{
+  peppy_schema: "launcher_fragment/v1",
+
+  deployments: [
+    {
+      // The initializer polls each limb's is_ready and reports the robot
+      // ready only when all four are up.
+      source: { name: "openarm_initializer", tag: "v1" },
+      instances: [
+        {
+          instance_id: "init_inst",
+          links: {
+            left_arm: "left_arm_inst",
+            right_arm: "right_arm_inst",
+            left_gripper: "left_gripper_inst",
+            right_gripper: "right_gripper_inst",
+          },
+        },
+      ],
+    },
+    {
+      source: { name: "openarm_backbone", tag: "v1" },
+      instances: [
+        {
+          instance_id: "backbone_inst",
+          // The governor band is a required node argument, as are the
+          // hardware generation and the startup EE-speed cap the robot
+          // fragment sets; the web panel streams live caps.
+          arguments: {
+            // Joint-led command pairings; the XR adjustment selects pose mode.
+            upstream_mode: "joints",
+            control_rate_hz: 100,
+            // Match the limbs' measured-state cadence.
+            follower_state_rate_hz: 100,
+            d_stop_m: 0.005,
+            d_safe_m: 0.02,
+            collision_governor_enabled: true,
+            max_ee_angular_velocity_rad_s: 0.8,
+          },
+          links: {
+            robot_init: "init_inst",
+            // The web panel supplies the operator's governor toggle. XR and
+            // MCP use the backbone's launch-time settings and vacate this slot.
+            collision_ctrl: "commander_inst",
+            // Governed commands flow to each follower; its measured state
+            // returns on the same joint_link or gripper_link pairing.
+            left_arm_link: "left_arm_inst",
+            right_arm_link: "right_arm_inst",
+            left_gripper_link: "left_gripper_inst",
+            right_gripper_link: "right_gripper_inst",
+            // Joint mode leaves pose slots vacant; XR pairs into them.
+            leader_left_arm_pose: { vacant: "upstream_mode joints: arm commands arrive on the joint slots" },
+            leader_right_arm_pose: { vacant: "upstream_mode joints: arm commands arrive on the joint slots" },
+          },
+        },
+      ],
+    },
+  ],
+
+  constraints: [
+    // Recording starts through the commander's record button and recorder
+    // slot, provided by the web panel and XR headset.
+    { when: { recorder: "lerobot_recorder" },
+      requires: [{ robot_commander: ["web_commander", "xr_commander"] }],
+      reason: "the record button requires web_commander or xr_commander" },
+  ],
+
+  adjustments: [
+    {
+      target: "commander_inst",
+      when: { robot_commander: "xr_commander" },
+      // OpenArm's released trigger rests at half travel; fully opening
+      // splays the fingers nearly flat. The robot owns this travel setting.
+      set_arguments: { command_rate_hz: 100, gripper_open_fraction: 0.5 },
+      set_links: {
+        left_arm: "backbone_inst/leader_left_arm_pose",
+        right_arm: "backbone_inst/leader_right_arm_pose",
+        left_gripper: "backbone_inst/leader_left_gripper",
+        right_gripper: "backbone_inst/leader_right_gripper",
+        postures: ["backbone_inst"],
+        // Ordered per-limb health reports for the headset status panel.
+        motor_health: ["left_arm_inst", "right_arm_inst", "left_gripper_inst", "right_gripper_inst"],
+      },
+    },
+    {
+      target: "backbone_inst",
+      when: { robot_commander: "xr_commander" },
+      set_arguments: { upstream_mode: "pose" },
+      set_links: {
+        collision_ctrl: { vacant: "xr_commander never produces governor_control" },
+        leader_left_arm: { vacant: "upstream_mode pose: arm commands arrive on the pose slots" },
+        leader_right_arm: { vacant: "upstream_mode pose: arm commands arrive on the pose slots" },
+      },
+      unset_links: ["leader_left_arm_pose", "leader_right_arm_pose"],
+    },
+    {
+      target: "recorder_inst",
+      // Each source is sampled onto this fps grid.
+      set_arguments: { fps: 15 },
+      set_links: {
+        // Read-only follower observations, in robot limb order.
+        observed_joints: ["left_arm_inst", "right_arm_inst"],
+        observed_grippers: ["left_gripper_inst", "right_gripper_inst"],
+        // Record the backbone's governed commands, paired positionally with
+        // the measured lists above: each action matches its follower.
+        commanded_joints: ["backbone_inst/left_arm_link", "backbone_inst/right_arm_link"],
+        commanded_grippers: ["backbone_inst/left_gripper_link", "backbone_inst/right_gripper_link"],
+      },
+    },
+  ],
+}

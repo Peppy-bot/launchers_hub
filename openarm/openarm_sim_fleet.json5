@@ -1,0 +1,60 @@
+// Simulated OpenArms sharing one simulation. The simulation is the stack;
+// each robot is a copy of one of the `robot` options, named here or added
+// later with `stack join`, its ids minted under its name: alpha_backbone_inst,
+// alpha_commander_inst.
+//
+//   peppy stack launch openarm_sim_fleet                   # Waldo and alpha, with the browser panel
+//   peppy stack launch openarm_sim_fleet --with mujoco     # the same copy in MuJoCo
+//   peppy stack launch openarm_sim_fleet --with isaac_sim,web_scene_commander
+//   peppy stack remove alpha                               # the simulation keeps running
+//   peppy stack join openarm_v2_sim -i bravo --with xr_commander --set-arguments commander_inst.https_port=4444
+//   peppy stack remove bravo
+//
+// The simulations pair one robot per limb slot, so this fleet ships one
+// copy; a second simulated robot in one simulation waits for the
+// multi-robot slot.
+{
+  peppy_schema: "launcher/v1",
+
+  components: [
+    {
+      name: "simulation",
+      cardinality: "one",
+      provides: ["simulation_inst"],
+      options: {
+        mujoco: "../simulation/fragments/mujoco.json5",
+        isaac_sim: "../simulation/fragments/isaac_sim.json5",
+        waldo: "../simulation/fragments/waldo.json5",
+      },
+    },
+    {
+      name: "robot",
+      cardinality: "zero_or_more",
+      options: {
+        openarm_v1_sim: "fragments/openarm_v1_sim.json5",
+        openarm_v2_sim: "fragments/openarm_v2_sim.json5",
+      },
+    },
+  ],
+
+  // Component deployments: the entry names the component and its option.
+  // `with` selects the robot's own axes, an axis left out taking what the
+  // robot deploys; `arguments` is keyed by the ids written in its fragment.
+  deployments: [
+    { simulation: "waldo" },
+    {
+      robot: "openarm_v2_sim",
+      instances: [
+        { instance_id: "alpha", with: { robot_commander: "web_commander" } },
+      ],
+    },
+  ],
+
+  adjustments: [
+    // Waldo's world declares its robot and compatible hand_teleop plugin.
+    // The viewer's "Start camera" panel tracks webcam hands and gives them
+    // command priority while tracked; the pairing resumes when tracking ends.
+    { target: "simulation_inst", when: { simulation: "waldo" },
+      set_arguments: { world: "openarm_v2", plugins: "hand_teleop" } },
+  ],
+}

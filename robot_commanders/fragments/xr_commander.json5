@@ -1,0 +1,18 @@
+// Reusable WebXR commander. Each robot's fragment supplies its
+// command rate, gripper opening, and robot-side bindings.
+// The node generates a TLS certificate and serves HTTPS on port 4443;
+// accept its certificate in the headset browser. Override https_port for
+// colocated commanders. Headset access requires a reachable host port.
+{
+  peppy_schema: "launcher_fragment/v1",
+  deployments: [
+    {
+      source: { name: "xr_commander", tag: "v1" },
+      instances: [
+        {
+          instance_id: "commander_inst",
+        },
+      ],
+    },
+  ],
+}

@@ -8,9 +8,7 @@
 // its launch phase no matter how correct the launcher is. Such a combination
 // is still validated (`peppy repo index --check` holds every selection to
 // the structural checks, and `peppy stack resolve` flattens it) but it is
-// not launched, and the reason below is quoted in the run summary. Entries
-// also cover nodes published by repositories the workflow does not register,
-// since a combination deploying one of them fails its launch the same way.
+// not launched, and the reason below is quoted in the run summary.
 //
 // When a new node needs hardware the runner lacks, add one entry naming the
 // node and what is missing. Entries are matched on the node names a
@@ -43,7 +41,7 @@
   },
   {
     node: "openarm_sim_isaac",
-    reason: "runs Isaac Sim on a GPU; the runner has none",
+    reason: "requires an NVIDIA GPU; the runner has no GPU",
   },
   {
     node: "so101_follower",

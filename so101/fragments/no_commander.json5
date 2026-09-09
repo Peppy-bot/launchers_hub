@@ -1,12 +1,10 @@
 // No command surface: an action-only session. The stack still brings up the
 // follower and the backbone, so move_arm, move_arm_joints, move_gripper and
 // the postures remain callable; nothing streams into the backbone's upstream
-// slots.
-//
-// Those slots are optional pairings on so101_backbone, and an optional
-// pairing must be paired or declared vacant. The base launcher already
-// declares leader_pose vacant under joint-led teleop; with no commander the
-// other two go vacant as well.
+// slots. Those slots are optional pairings on so101_backbone, and an optional
+// pairing is paired or declared vacant: the robot fragment declares
+// leader_pose vacant under joint-led teleop, and here the other two go vacant
+// as well.
 {
   peppy_schema: "launcher_fragment/v1",
 
