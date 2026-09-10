@@ -124,7 +124,10 @@ Colocated copies need distinct server ports, hardware interfaces, and
 dataset directories. A copy's `arguments` in the file, or `--set-arguments`
 on join, override its instances' arguments by the id written in the
 fragment; `with` and `arguments` written on the entry itself apply to every
-copy it lists, each copy's own winning per axis and per argument. Values are
+copy it lists, each copy's own winning per axis and per argument, and an
+entry or a copy may carry `adjustments` with the fragment verbs, run after
+the launcher's adjustments and before the copy's arguments. At launch,
+`--with alpha.xr_commander` selects a file copy's own axis. Values are
 JSON5; the order of application is fragment values and adjustments, launcher
 adjustments, the entry's then the copy's adjustments, then the copy's
 arguments. The [OpenArm guide](openarm/README.md#commanders-recording-and-cameras)
@@ -159,8 +162,10 @@ repositories registered for those checks. The CI combination planner
 requires `peppy` on PATH.
 
 The [workflow](.github/workflows/tests.yml) enumerates every state of every
-axis, the fragments' own axes included, and every copy a fleet can add;
-validates the admitted combinations; and launches the ones its runner can
+axis, the fragments' own axes included: the launcher's own axes and each
+deployed copy's as launch words, `alpha.camera_rig=cameras_sim` among them,
+and every copy a fleet can add as a join, its axes as join words. It
+validates the admitted combinations and launches the ones its runner can
 run, joining and removing the planned copy. The
 [skip file](.github/unlaunchable-nodes.json5) lists the hardware the runner
 lacks. Structural checks and runtime startup checks are separate results.

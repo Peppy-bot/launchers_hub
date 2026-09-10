@@ -4,9 +4,10 @@
 enumerate prints launcher paths and fragment references for diff scoping,
 followed by six-column combo records: kind, launcher, launch words, joined
 option, join words, placement. It covers every state of every axis the
-launcher and its fragments declare, and every copy a `zero_or_more` axis can
-add with `stack join`. A declared core_nodes list requests local placement in
-CI.
+launcher and its fragments declare, every copy a `zero_or_more` axis can add
+with `stack join`, and every state of the axes of each copy the file
+deploys, written as the `NAME.axis=option` launch words that select them. A
+declared core_nodes list requests local placement in CI.
 
 plan previews each combination through peppy stack resolve, its join
 included. Constraints classify refused combinations. The skip file
@@ -251,23 +252,75 @@ class Axis:
         return self.cardinality == "zero_or_more"
 
 
+@dataclass(frozen=True)
+class Copy:
+    """A copy the file deploys: its name, the axis and option it runs, and
+    the options its `with` selects on that option's own axes."""
+
+    name: str
+    axis: str
+    option: str
+    selected: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class Launcher:
+    """One launcher: its axes, the fragment files its options compose, the
+    copies its file deploys, and its declared core-node placement."""
+
+    axes: list[Axis]
+    references: list[str]
+    copies: list[Copy]
+    declares_core_nodes: bool
+
+
+def deployed_option(entry, label):
+    """The `{ <axis>: "<option>" }` pair one `deployments` entry deploys, or
+    None where the entry deploys a node under `source`."""
+    if not isinstance(entry, dict):
+        raise Json5Error(f"{label}: a `deployments` entry is an object")
+    if "source" in entry:
+        return None
+    keys = [key for key in entry if key not in ("instances", "with", "arguments", "adjustments")]
+    if len(keys) != 1 or not isinstance(entry[keys[0]], str):
+        raise Json5Error(
+            f"{label}: a `deployments` entry deploys a node under `source` or one "
+            "component's option, `{ <component>: \"<option>\" }`"
+        )
+    return keys[0], entry[keys[0]]
+
+
 def option_entries(document, label):
     """The `{ <axis>: "<option>" }` entries of a document's `deployments`,
     as an axis-to-option map, beside the node entries."""
-    deployed = {}
+    pairs = (deployed_option(entry, label) for entry in document.get("deployments", []))
+    return dict(pair for pair in pairs if pair)
+
+
+def deployed_copies(document, axes, label):
+    """The copies a launcher's `deployments` run: one per `instances` entry
+    of a repeatable axis, each carrying what its `with` selects on the axes
+    of the option it runs, the entry's `with` under the copy's own."""
+    repeatable = {axis.name for axis in axes if axis.repeatable}
+    copies = []
     for entry in document.get("deployments", []):
-        if not isinstance(entry, dict):
-            raise Json5Error(f"{label}: a `deployments` entry is an object")
-        if "source" in entry:
+        pair = deployed_option(entry, label)
+        if pair is None or pair[0] not in repeatable:
             continue
-        keys = [key for key in entry if key not in ("instances", "with", "arguments")]
-        if len(keys) != 1 or not isinstance(entry[keys[0]], str):
+        axis, option = pair
+        instances = entry.get("instances")
+        if not isinstance(instances, list) or not instances:
             raise Json5Error(
-                f"{label}: a `deployments` entry deploys a node under `source` or one "
-                "component's option, `{ <component>: \"<option>\" }`"
+                f"{label}: axis `{axis}` runs as named copies: "
+                f'`{{ {axis}: "{option}", instances: [{{ instance_id: "alpha" }}] }}`'
             )
-        deployed[keys[0]] = entry[keys[0]]
-    return deployed
+        for instance in instances:
+            name = instance.get("instance_id") if isinstance(instance, dict) else None
+            if not isinstance(name, str):
+                raise Json5Error(f"{label}: a copy of `{axis}` has no `instance_id`")
+            selected = {**entry.get("with", {}), **instance.get("with", {})}
+            copies.append(Copy(name, axis, option, selected))
+    return copies
 
 
 def read_axes(document, label, scope, read_option):
@@ -335,7 +388,12 @@ class Reader:
             return self.option_axes(spec, directory, f"{path} option {axis}.{option}", depth=1)
 
         axes = read_axes(document, path, "launcher", read_option)
-        return axes, bool(document.get("core_nodes"))
+        return Launcher(
+            axes,
+            sorted(self.references),
+            deployed_copies(document, axes, path),
+            bool(document.get("core_nodes")),
+        )
 
     def option_axes(self, spec, directory, label, depth):
         """The axes an option's fragments declare, their own options read
@@ -367,10 +425,8 @@ class Reader:
 
 
 def read_launcher(root, path):
-    """The axes, fragment references, and core-node placement of one launcher."""
-    reader = Reader(root)
-    axes, declares_core_nodes = reader.launcher(path)
-    return axes, sorted(reader.references), declares_core_nodes
+    """One launcher and every fragment it composes."""
+    return Reader(root).launcher(path)
 
 
 # ---------------------------------------------------------------------------
@@ -419,11 +475,25 @@ class Combination:
     join_words: list = field(default_factory=list)
 
 
-def launcher_selections(axes):
+def copy_selections(axes, copy):
+    """Every selection of a deployed copy's own axes other than the one it
+    already runs, as the `NAME.axis=option` launch words that select it."""
+    own = next((axis.nested.get(copy.option, []) for axis in axes if axis.name == copy.axis), [])
+    runs = {axis.name: copy.selected.get(axis.name, axis.deployed) for axis in own}
+    return [
+        [(f"{copy.name}.{axis}", option) for axis, option in selection]
+        for selection in selections_of(own)
+        if any(option != runs.get(axis) for axis, option in selection)
+    ]
+
+
+def launcher_selections(axes, copies=()):
     """Every launch of the launcher, peppy's order: each stack selection
-    bare, then with every copy a repeatable axis can add joined onto it."""
+    bare, then with each deployed copy's own axes selected by launch word,
+    then with every copy a repeatable axis can add joined onto it."""
     stack = [axis for axis in axes if not axis.repeatable]
-    copies = [
+    deployed = [words for copy in copies for words in copy_selections(axes, copy)]
+    joined = [
         (option, selection)
         for axis in axes
         if axis.repeatable
@@ -433,7 +503,9 @@ def launcher_selections(axes):
     combinations = []
     for selection in selections_of(stack):
         combinations.append(Combination(selection))
-        for option, own in copies:
+        for words in deployed:
+            combinations.append(Combination(selection + words))
+        for option, own in joined:
             combinations.append(Combination(selection, option, own))
     return combinations
 
@@ -453,15 +525,15 @@ def command_enumerate(root):
         if not isinstance(entry, dict) or "path" not in entry:
             raise Json5Error(f"peppy_repository.json5: launcher `{name}` has no `path`")
         path = entry["path"]
-        axes, references, declares_core_nodes = read_launcher(root, path)
-        combinations = launcher_selections(axes)
+        launcher = read_launcher(root, path)
+        combinations = launcher_selections(launcher.axes, launcher.copies)
         if len(combinations) > COMBINATION_CEILING:
             raise Json5Error(
                 f"{path}: the selection space has {len(combinations)} combinations, "
                 f"more than the {COMBINATION_CEILING} this check enumerates"
             )
-        print(f"launcher\t{name}\t{path}\t{','.join(references)}")
-        placement = "local" if declares_core_nodes else "-"
+        print(f"launcher\t{name}\t{path}\t{','.join(launcher.references)}")
+        placement = "local" if launcher.declares_core_nodes else "-"
         for combination in combinations:
             print(
                 "combo\t{}\t{}\t{}\t{}\t{}".format(

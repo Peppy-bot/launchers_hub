@@ -106,31 +106,41 @@ class CombinationsTests(unittest.TestCase):
             ["combo", "so101", "robot_commander=xr_commander,recorder=lerobot_recorder,camera_rig=cameras", "", "", "-"],
             combos("so101"),
         )
-        # The real fleet: one bare launch of its deployed copies, then a join
-        # of each robot option under every selection of its own axes:
-        # robot_commander (3) times recorder (2) times camera_rig (2), the
-        # v2 also times brain (2).
+        # The real fleet: one bare launch of its deployed copies, then every
+        # other selection of the deployed v2 copy's own axes as launch words
+        # (robot_commander (3) times recorder (2) times camera_rig (2) times
+        # brain (2), less the one it runs), then a join of each robot option
+        # under every selection of its own axes: the v1 has no brain.
         real = combos("openarm_real_fleet")
-        self.assertEqual(len(real), 1 + 3 * 2 * 2 + 3 * 2 * 2 * 2)
+        self.assertEqual(len(real), 1 + (3 * 2 * 2 * 2 - 1) + 3 * 2 * 2 + 3 * 2 * 2 * 2)
         self.assertIn(["combo", "openarm_real_fleet", "", "", "", "-"], real)
+        self.assertIn(
+            ["combo", "openarm_real_fleet", "alpha.robot_commander=xr_commander,alpha.recorder=lerobot_recorder,alpha.camera_rig=cameras", "", "", "-"],
+            real,
+        )
         self.assertIn(
             ["combo", "openarm_real_fleet", "", "openarm_v1", "robot_commander=xr_commander,recorder=lerobot_recorder,camera_rig=cameras", "-"],
             real,
         )
         # The simulated fleet: one stack selection per simulation, Isaac Sim
         # and Waldo each with and without their scene commander (5), each
-        # bare and joined by either simulated robot: the v1 has no camera
-        # rig and no brain (3 times 2), the v2 has both (3 times 2 times 2
-        # times 2).
+        # bare, with every other selection of its deployed v2 copy's axes,
+        # and joined by either simulated robot: the v1 has no camera rig and
+        # no brain (3 times 2), the v2 has both (3 times 2 times 2 times 2).
         sim = combos("openarm_sim_fleet")
-        self.assertEqual(len(sim), 5 * (1 + 3 * 2 + 3 * 2 * 2 * 2))
+        self.assertEqual(len(sim), 5 * (1 + (3 * 2 * 2 * 2 - 1) + 3 * 2 + 3 * 2 * 2 * 2))
         self.assertIn(["combo", "openarm_sim_fleet", "simulation=waldo,scene_commander=web_scene_commander", "", "", "-"], sim)
+        self.assertIn(
+            ["combo", "openarm_sim_fleet", "simulation=mujoco,alpha.robot_commander=xr_commander,alpha.recorder=lerobot_recorder,alpha.camera_rig=cameras_sim", "", "", "-"],
+            sim,
+        )
         self.assertIn(
             ["combo", "openarm_sim_fleet", "simulation=mujoco", "openarm_v2_sim", "robot_commander=xr_commander,recorder=lerobot_recorder,camera_rig=cameras_sim", "-"],
             sim,
         )
         # The generic fleet: the simulation off or any of the five stack
         # selections above, each bare and joined by any of the four robots.
+        # It deploys nothing, so it has no copy of its own to select for.
         generic = combos("openarm_generic_fleet")
         self.assertEqual(
             len(generic), 6 * (1 + 3 * 2 * 2 + 3 * 2 * 2 * 2 + 3 * 2 + 3 * 2 * 2 * 2)
@@ -162,8 +172,7 @@ class CombinationsTests(unittest.TestCase):
         index = combinations.load_json5(root / "peppy_repository.json5", "index")
         references = set()
         for entry in index["launchers"].values():
-            _, paths, _ = combinations.read_launcher(root, entry["path"])
-            references.update(paths)
+            references.update(combinations.read_launcher(root, entry["path"]).references)
         fragments = set()
         for path in root.rglob("*.json5"):
             document = combinations.load_json5(path, str(path))
@@ -183,7 +192,7 @@ class CombinationsTests(unittest.TestCase):
             ("so101", "so101/so101.json5", "so101/fragments/so101.json5", "so101/fragments/so101.json5", 60, 30),
         ]:
             with self.subTest(robot=robot):
-                _, references, _ = combinations.read_launcher(root, launcher)
+                references = combinations.read_launcher(root, launcher).references
                 self.assertIn("robot_commanders/fragments/xr_commander.json5", references)
                 self.assertIn("recording/fragments/lerobot_recorder.json5", references)
                 fragment = combinations.load_json5(root / robot_path, robot)
@@ -224,8 +233,8 @@ class CombinationsTests(unittest.TestCase):
             self.assertEqual(entry["join_words"], "robot_commander=xr_commander")
             self.assertEqual(entry["label"], "fleet (simulation=mujoco) + join openarm_v2 (robot_commander=xr_commander)")
 
-    def test_plan_previews_a_launch_with_no_join(self):
-        words = "simulation=mujoco,scene_commander=web_scene_commander"
+    def test_plan_previews_a_deployed_copys_launch_words_without_a_join(self):
+        words = "simulation=mujoco,alpha.camera_rig=cameras_sim,alpha.recorder=lerobot_recorder"
         with planned(f"combo\tfleet\t{words}\t\t\t-\n") as (run, matrix):
             self.assertEqual(run.call_args.args[0], [
                 "peppy", "stack", "resolve", "fleet.json5", "--with", words,
@@ -235,6 +244,53 @@ class CombinationsTests(unittest.TestCase):
             self.assertEqual(entry["join_option"], "")
             self.assertEqual(entry["join_name"], "")
             self.assertEqual(entry["label"], f"fleet ({words})")
+
+    def test_a_deployed_copy_selects_its_own_axes_with_copy_scoped_launch_words(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "fleet.json5").write_text(json.dumps({"components": [
+                {"name": "robot", "cardinality": "zero_or_more", "options": {"openarm_v2": {
+                    "components": [
+                        {"name": "robot_commander", "options": {"web_commander": {}, "xr_commander": {}}},
+                        {"name": "recorder", "cardinality": "zero_or_one", "options": {"lerobot_recorder": {}}},
+                    ],
+                    "deployments": [{"robot_commander": "web_commander"}],
+                }}},
+            ], "deployments": [
+                {"robot": "openarm_v2", "instances": [{"instance_id": "alpha"}]},
+            ]}))
+            launcher = combinations.read_launcher(directory, "fleet.json5")
+            self.assertEqual(launcher.copies, [combinations.Copy("alpha", "robot", "openarm_v2", {})])
+            found = combinations.launcher_selections(launcher.axes, launcher.copies)
+            # The copy runs the web commander with no recorder, which the
+            # bare launch already covers; its three other states are words.
+            self.assertEqual(
+                [combinations.render_words(c.words) for c in found if c.join_option is None],
+                [
+                    "",
+                    "alpha.robot_commander=web_commander,alpha.recorder=lerobot_recorder",
+                    "alpha.robot_commander=xr_commander,alpha.recorder=lerobot_recorder",
+                    "alpha.robot_commander=xr_commander",
+                ],
+            )
+
+    def test_a_copys_with_names_the_selection_the_bare_launch_covers(self):
+        commander = combinations.Axis(
+            "robot_commander", "one", ["web_commander", "xr_commander"], deployed="web_commander")
+        axes = [combinations.Axis(
+            "robot", "zero_or_more", ["openarm_v2"], nested={"openarm_v2": [commander]})]
+        copy = combinations.Copy("alpha", "robot", "openarm_v2", {"robot_commander": "xr_commander"})
+        self.assertEqual(
+            [combinations.render_words(words) for words in combinations.copy_selections(axes, copy)],
+            ["alpha.robot_commander=web_commander"],
+        )
+
+    def test_a_copy_of_a_repeatable_axis_is_named(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "fleet.json5").write_text(json.dumps({"components": [
+                {"name": "robot", "cardinality": "zero_or_more", "options": {"openarm_v2": {}}},
+            ], "deployments": [{"robot": "openarm_v2"}]}))
+            with self.assertRaises(combinations.Json5Error):
+                combinations.read_launcher(directory, "fleet.json5")
 
     def test_waldo_scene_commander_links_the_simulation(self):
         root = Path(__file__).resolve().parents[2]
@@ -259,13 +315,20 @@ class CombinationsTests(unittest.TestCase):
             ], "deployments": [
                 {"robot": "openarm_v2", "with": {"robot_commander": "xr_commander"},
                  "arguments": {"commander_inst": {"https_port": 4444}},
+                 "adjustments": [{"target": "commander_inst", "set_arguments": {"command_rate_hz": 60}}],
                  "instances": [
                      {"instance_id": "alpha"},
-                     {"instance_id": "bravo"},
+                     {"instance_id": "bravo", "adjustments": [{"target": "commander_inst", "set_arguments": {"command_rate_hz": 100}}]},
                  ]},
             ]}))
-            axes, _, _ = combinations.read_launcher(directory, "fleet.json5")
-            self.assertEqual([axis.name for axis in axes], ["robot"])
+            launcher = combinations.read_launcher(directory, "fleet.json5")
+            self.assertEqual([axis.name for axis in launcher.axes], ["robot"])
+            # Both copies run the entry's selection.
+            self.assertEqual(
+                launcher.copies,
+                [combinations.Copy(name, "robot", "openarm_v2", {"robot_commander": "xr_commander"})
+                 for name in ["alpha", "bravo"]],
+            )
 
     def test_refused_keys_and_cardinalities_are_rejected(self):
         for extra in [{"optional": True}, {"cardinality": "many"},
